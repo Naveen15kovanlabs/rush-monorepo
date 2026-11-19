@@ -1,25 +1,31 @@
+
 name: Build & Deploy Monorepo (Selective)
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
+
   pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
+
   workflow_dispatch:
     inputs:
       build_all:
-        description: "Force build all images regardless of changes"
+        description: "Force build all Docker images"
         required: false
         type: boolean
         default: false
 
 permissions:
   contents: read
-  packages: write # Needed to push Docker images to GitHub Container Registry (ghcr.io)
+  packages: write
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     env:
       DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/postgres?schema=public"
       HRMS_API_URL: "http://localhost:8000"
@@ -29,14 +35,14 @@ jobs:
       NEXT_TELEMETRY_DISABLED: "1"
 
     steps:
-      # Step 1: Checkout repository including ALL Git Submodules!
+      # Step 1: Checkout repository with all Git submodules
       - name: Checkout Monorepo with Submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
 
-      # Step 2: Set up Node.js runtime
+      # Step 2: Set up Node.js
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -46,12 +52,12 @@ jobs:
       - name: Rush Install
         run: node common/scripts/install-run-rush.js install
 
-      # Step 4: Smart Rush Build (topological compile with cache)
+      # Step 4: Build Rush projects
       - name: Rush Build
-        run: node common/scripts/install-run-rush.js build || (echo "Proceeding with Docker build" && exit 0)
+        run: node common/scripts/install-run-rush.js build
 
-      # Step 5: Log in to GitHub Container Registry (GHCR)
-      # No passwords needed! Uses the built-in GITHUB_TOKEN
+      # Step 5: Authenticate with GitHub Container Registry
+      # Uses the automatically generated GitHub Actions token
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -60,18 +66,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Step 6: Build & Push changed apps (and any missing initial images)
-      - name: Selective Docker Build & Push
-        run: |
-          if [ "${{ github.event.inputs.build_all }}" = "true" ]; then
-            node common/scripts/build-images.js --push --single
-          else
-            node common/scripts/build-images.js --changed-only --push --single
-          fi
+      # Step 6: Pull requests build images without publishing
+      - name: Build Docker Images (Pull Request)
+        if: github.event_name == 'pull_request'
+        run: node common/scripts/build-images.js --changed-only --single
         env:
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
 
-      # Step 7: (Optional) Update Cloud Kubernetes Pod
+      # Step 7: Manual full build and publish
+      - name: Build and Push All Images
+        if: github.event_name == 'workflow_dispatch' && inputs.build_all
+        run: node common/scripts/build-images.js --push --single
+        env:
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+
+      # Step 8: Selective build and publish
+      - name: Build and Push Changed Images
+        if: github.event_name != 'pull_request' && !(github.event_name == 'workflow_dispatch' && inputs.build_all)
+        run: node common/scripts/build-images.js --changed-only --push --single
+        env:
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+
+      # Step 9: Optional Kubernetes deployment
+      # Uncomment and configure when your Kubernetes cluster is ready.
+      #
       # - name: Set Kubernetes Context
       #   if: github.ref == 'refs/heads/main'
       #   uses: azure/k8s-set-context@v3

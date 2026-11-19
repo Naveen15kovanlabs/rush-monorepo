@@ -83,12 +83,17 @@ for (const app of apps) {
 }
 
 for (const app of apps) {
-  const command = `rushx preview --host 0.0.0.0 --port ${app.port}`;
-  const child = spawn(command, {
-    cwd: app.folder,
-    shell: true,
-    stdio: ["pipe", "pipe", "pipe"]
-  });
+  const rushxScript = path.join(repoRoot, "common", "scripts", "install-run-rushx.js");
+
+  const child = spawn(
+    process.execPath,
+    [rushxScript, "preview", "--host", "0.0.0.0", "--port", String(app.port)],
+    {
+      cwd: app.folder,
+      shell: false,
+      stdio: ["pipe", "pipe", "pipe"]
+    }
+  );
 
   children.set(app.name, child);
   prefixStream(app.name, "stdout", child.stdout);
