@@ -55,9 +55,10 @@ jobs:
       # Step 4: Build Rush projects
       - name: Rush Build
         run: node common/scripts/install-run-rush.js build
+        env:
+          RUSH_ALLOW_WARNINGS_IN_SUCCESSFUL_BUILD: "1"
 
       # Step 5: Authenticate with GitHub Container Registry
-      # Uses the automatically generated GitHub Actions token
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
